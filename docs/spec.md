@@ -396,12 +396,14 @@ Flags override the paths in the settings file's `[io]` section. Calling `rhs` wi
 
 While a run is in progress, `rhs run` prints a status line on stderr:
 
-- A percent bar from simulated time versus the scenario horizon (the latest `requested_at`, `online_at` or `offline_at` in the inputs). After the horizon the bar stays at 100% while remaining trips finish.
+- A percent bar from simulated time versus the scenario horizon (the latest `requested_at`, `online_at` or `offline_at` in the inputs). After the horizon the bar stays at 100% while remaining trips finish, and the final line always reads 100%, including when the run stops early because every request is resolved.
 - Elapsed wall time and an estimate of time remaining.
-- The simulated clock as `T+N` plus local wall-clock time when `[simulation] timezone` is set, matching the viewer.
+- The simulated clock as `T+N` plus local wall-clock time when `[simulation] timezone` is set, matching the viewer. Before the first request (supply coming online early) it reads `before first request` instead of a negative offset.
 - Drivers online, split into idle, en route, on trip and repositioning.
 - Requests waiting, assigned (including driver arrived and on trip), completed and canceled.
 - When the OSRM router is in use: `/table` requests, `/route` requests and cache hits (pairs served without a new HTTP request).
+
+After the outputs are written, one summary line follows: `done: N completed, N canceled / N requests | wait median Ns, p90 Ns | fleet utilization N% | outputs in DIR`, taken from `run_summary.csv`.
 
 On a terminal the line redraws in place about four times a second. When stderr is not a terminal, a plain line is printed every few seconds instead. `-progress=false` turns the status line off. Progress is display only: it does not change outputs, hashes or determinism.
 

@@ -47,6 +47,15 @@ type Dashboard struct {
 	Distributions map[string][]Bucket `json:"distributions"`
 	RidepoolTypes []RidepoolCount     `json:"ridepool_types"`
 	Timeline      []TimelinePoint     `json:"timeline"`
+	// Requests are the headline counts from trips.
+	Requests RequestCounts `json:"requests"`
+}
+
+// RequestCounts are request totals by final status.
+type RequestCounts struct {
+	Total     int `json:"total"`
+	Completed int `json:"completed"`
+	Canceled  int `json:"canceled"`
 }
 
 func ratio(numerator, denominator float64) *float64 {
@@ -260,6 +269,7 @@ func (r *Run) buildDashboard() Dashboard {
 
 	const completion = "completion-and-cancellations"
 	all := float64(len(r.Trips))
+	d.Requests = RequestCounts{Total: len(r.Trips), Completed: completed, Canceled: canceled}
 	b.add("completion", completion, "completion_rate", "higher", ratio(float64(completed), all))
 	b.add("completion", completion, "cancel_rate", "lower", ratio(float64(canceled), all))
 	b.add("completion", completion, "cancel_rate_max_request_to_assignment", "lower", ratio(float64(canceledAssignment), all))

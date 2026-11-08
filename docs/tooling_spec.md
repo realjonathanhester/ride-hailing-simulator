@@ -90,6 +90,8 @@ A top bar links to the dashboard, Trips, Supply, Playback and Compare. A `reques
 
 ## 1. Aggregate results dashboard
 
+A headline row shows completed and canceled requests (count and share), median and p90 wait, and fleet utilization (`on_trip_time_share`); the API's `requests` object carries the `total`, `completed` and `canceled` counts. Supply utilization is split into share-of-time and share-of-distance tables. Values are formatted by kind: shares and rates as percents to one decimal, seconds and meters as whole units, other ratios to two decimals (the raw value is in the cell's tooltip).
+
 Numbers come with a small distribution chart where noted. Definitions:
 
 ### Supply utilization
@@ -261,7 +263,9 @@ TBD. This section will be specified in a later commit. `/decisions` is reserved 
   - An open request is shown with the origin icon at its origin from `requested_at` until `pickup_at`, or until `canceled_at` or the run end if it was never picked up.
   - An active trip, picked up but not yet dropped off, shows the destination icon at its destination from `pickup_at` until `dropoff_at`.
 - **Info windows:** clicking a car shows its `supply_id`, state and riders aboard, with links to `/supply/{supply_id}?at={now}`. Clicking a request icon shows the request's status and times, with links to `/trips/{request_id}`.
-- **Counters:** the header shows the current `T+` time and local time, open requests, active trips and cars by state.
+- **Counters:** the header shows the current `T+` time and local time, riders waiting (open requests) and riding (active trips), and cars in every playback state (zeros included), each with a tooltip. Cars and requests are read at the same instant with the same half-open `[start, end)` rule; at the very end of the run they are read just before it, so a final dropoff counts on both sides.
+- **Legend:** below the counters, the car state colors (plus pooled) and the pickup and drop-off icons.
+- **Initial view:** the map fits the 5th to 95th percentile of pickup and drop-off points in the first hour of the run, so a few far-out trips don't zoom it out.
 - **Compare:** with `-compare`, a run selector (A or B) switches which run is played. Side-by-side synchronized playback of A and B is future work.
 - **Without a maps key:** the page still has the controls and counters, and the map is replaced by the usual notice.
 
@@ -306,4 +310,4 @@ Google's own POI and transit icons are hidden (`clickableIcons: false`, and on r
 14. **Local time:** times show the `T+` offset and the local wall-clock time together; the offset stays because it lines up with spec timings, and wall-clock time is what people read. Zone precedence is flag, viewer settings, run metadata, then browser, so a benchmark can carry its own zone and a person can still override it. The server resolves and validates the IANA name; the browser formats with `Intl.DateTimeFormat`, so no time zone database ships in the UI.
 15. **Viewer performance:** everything derived is cached per run for the life of the server, and the dashboard timeline sweeps each trip and each car's event log once instead of rescanning them at every sample. On the Austin benchmark (10,000 trips, 66,190 event rows) this took the dashboard from about 32 s to a few milliseconds and the comparison from about 70 s to a few milliseconds, with byte-identical JSON. Memory grows by roughly the size of those results; there is no cache invalidation because outputs are read once at startup.
 16. **Compression:** API JSON is gzipped (fastest level) because playback windows and the comparison are hundreds of KB of repetitive JSON; on Austin a one-hour playback window drops from 907 KB to 114 KB. The UI files are small and embedded, so they skip it.
-17. **Run progress:** `rhs run` prints a live status line on stderr (percent bar by simulated time versus the latest input timestamp, wall elapsed and remaining, local clock, driver and request counts, and OSRM request and cache counts when that router is in use). A terminal redraws in place about four times a second; a non-terminal gets a plain line every few seconds. `-progress=false` turns it off. Progress never touches outputs or determinism.
+17. **Run progress:** `rhs run` prints a live status line on stderr, then a one-line end-of-run summary (completed, canceled, median and p90 wait, fleet utilization, output directory) (percent bar by simulated time versus the latest input timestamp, wall elapsed and remaining, local clock, driver and request counts, and OSRM request and cache counts when that router is in use). A terminal redraws in place about four times a second; a non-terminal gets a plain line every few seconds. `-progress=false` turns it off. Progress never touches outputs or determinism.

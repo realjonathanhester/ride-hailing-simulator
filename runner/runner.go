@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/realjonathanhester/ride-hailing-simulator/model"
@@ -119,6 +120,7 @@ func RunWithOptions(settingsPath string, paths Paths, options Options) (*simulat
 	sim.SetDriverBehavior(behavior)
 
 	var reporter *progress.Reporter
+	var last progress.Snapshot
 	if options.Progress != nil {
 		writer := options.Progress.Writer
 		if writer == nil {
@@ -148,7 +150,8 @@ func RunWithOptions(settingsPath string, paths Paths, options Options) (*simulat
 		}
 		osrmStats, _ := router.(osrmCounter)
 		sim.SetProgress(func(p simulator.Progress) {
-			reporter.Update(toSnapshot(p, osrmStats))
+			last = toSnapshot(p, osrmStats)
+			reporter.Update(last)
 		}, interval)
 	}
 
@@ -157,6 +160,8 @@ func RunWithOptions(settingsPath string, paths Paths, options Options) (*simulat
 		return nil, err
 	}
 	if reporter != nil {
+		last.Done = true // the run may end before the horizon (early stop)
+		reporter.Force(last)
 		reporter.Finish()
 	}
 	if counter, ok := router.(interface{ RequestCounts() (int64, int64) }); ok && options.Progress == nil {
@@ -189,7 +194,22 @@ func RunWithOptions(settingsPath string, paths Paths, options Options) (*simulat
 			return nil, err
 		}
 	}
+	if reporter != nil && len(result.RunSummary) == 1 {
+		fmt.Fprintln(reporter.Writer, progress.FormatSummary(summaryOf(settings, result)))
+	}
 	return result, nil
+}
+
+func summaryOf(settings model.Settings, result *simulator.Result) progress.Summary {
+	cell := map[string]string{}
+	for i, column := range simulator.RunSummaryColumnsFor(settings) {
+		cell[column] = result.RunSummary[0][i]
+	}
+	completed, _ := strconv.Atoi(cell["requests_completed"])
+	canceled, _ := strconv.Atoi(cell["requests_canceled"])
+	return progress.Summary{Completed: completed, Canceled: canceled, Total: len(result.Trips),
+		MedianWait: cell["median_wait_seconds"], P90Wait: cell["p90_wait_seconds"],
+		FleetUtilization: cell["fleet_utilization"], OutputDirectory: settings.IO.OutputDirectory}
 }
 
 type osrmCounter interface {
@@ -204,7 +224,7 @@ func toSnapshot(p simulator.Progress, counter osrmCounter) progress.Snapshot {
 		DriversOnline: p.DriversOnline, DriversIdle: p.DriversIdle,
 		DriversEnRoute: p.DriversEnRoute, DriversOnTrip: p.DriversOnTrip,
 		DriversRepositioning: p.DriversRepositioning,
-		RequestsWaiting: p.RequestsWaiting, RequestsAssigned: p.RequestsAssigned,
+		RequestsWaiting:      p.RequestsWaiting, RequestsAssigned: p.RequestsAssigned,
 		RequestsCompleted: p.RequestsCompleted, RequestsCanceled: p.RequestsCanceled,
 		RequestsTotal: p.RequestsTotal,
 	}

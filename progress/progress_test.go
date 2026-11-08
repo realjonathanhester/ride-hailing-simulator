@@ -90,11 +90,30 @@ func assertContains(t *testing.T, got, want string) {
 	}
 }
 
-func TestFormatAllowsNegativeOffsetBeforeStart(t *testing.T) {
+func TestFormatDoneIsComplete(t *testing.T) {
+	// An early stop ends before the horizon; the final line still reads 100%.
+	snap := Snapshot{Now: 3000, StartAt: 2000, HorizonAt: 5000, Done: true}
+	line := Format(snap, time.Second, nil)
+	assertContains(t, line, "100.0%")
+	assertContains(t, line, "[====================]")
+}
+
+func TestFormatSummary(t *testing.T) {
+	line := FormatSummary(Summary{Completed: 99, Canceled: 1, Total: 100, MedianWait: "416", P90Wait: "781", FleetUtilization: "0.295777", OutputDirectory: "out/a"})
+	assertContains(t, line, "99 completed, 1 canceled / 100 requests")
+	assertContains(t, line, "wait median 416s, p90 781s")
+	assertContains(t, line, "fleet utilization 29.6%")
+	assertContains(t, line, "outputs in out/a")
+}
+
+func TestFormatBeforeFirstRequest(t *testing.T) {
 	location := time.FixedZone("CST", -6*3600)
 	// Supply comes online before the first request.
 	snap := Snapshot{Now: 1000, StartAt: 2000, HorizonAt: 5000}
 	line := Format(snap, time.Second, location)
-	assertContains(t, line, "T-1000 ·")
+	assertContains(t, line, "before first request ·")
+	if strings.Contains(line, "T-") {
+		t.Fatalf("negative offset shown: %q", line)
+	}
 	assertContains(t, line, "0.0%")
 }

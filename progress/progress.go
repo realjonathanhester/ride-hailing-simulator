@@ -14,6 +14,9 @@ type Snapshot struct {
 	Now       int64 // simulated clock
 	StartAt   int64 // first requested_at
 	HorizonAt int64 // scenario end used for the percent bar
+	// Done marks the final snapshot: the run has finished, possibly before
+	// HorizonAt (for example when every request is resolved early).
+	Done bool
 
 	DriversOnline        int
 	DriversIdle          int
@@ -131,7 +134,9 @@ func (r *Reporter) write(snap Snapshot, wall time.Time) {
 // on the text without a running simulation.
 func Format(snap Snapshot, elapsed time.Duration, location *time.Location) string {
 	percent := 0.0
-	if snap.HorizonAt > snap.StartAt {
+	if snap.Done {
+		percent = 100
+	} else if snap.HorizonAt > snap.StartAt {
 		percent = 100 * float64(snap.Now-snap.StartAt) / float64(snap.HorizonAt-snap.StartAt)
 		if percent < 0 {
 			percent = 0
@@ -213,7 +218,7 @@ func formatSimulatedClock(now, startAt int64, location *time.Location) string {
 	offset := now - startAt
 	var text string
 	if offset < 0 {
-		text = fmt.Sprintf("T%d", offset) // before the first request, e.g. T-120
+		text = "before first request" // supply coming online early
 	} else {
 		text = fmt.Sprintf("T+%d", offset)
 	}
@@ -222,4 +227,31 @@ func formatSimulatedClock(now, startAt int64, location *time.Location) string {
 	}
 	local := time.Unix(now, 0).In(location)
 	return fmt.Sprintf("%s · %s", text, local.Format("3:04:05 PM MST"))
+}
+
+// Summary is the end-of-run figures printed after the outputs are written.
+type Summary struct {
+	Completed, Canceled, Total int
+	MedianWait, P90Wait        string // seconds, empty when no pickups
+	FleetUtilization           string // ratio, empty when no supply was online
+	OutputDirectory            string
+}
+
+// FormatSummary builds the one-line end-of-run summary.
+func FormatSummary(s Summary) string {
+	orDash := func(v, suffix string) string {
+		if v == "" {
+			return "-"
+		}
+		return v + suffix
+	}
+	utilization := "-"
+	if s.FleetUtilization != "" {
+		var u float64
+		if _, err := fmt.Sscanf(s.FleetUtilization, "%g", &u); err == nil {
+			utilization = fmt.Sprintf("%.1f%%", 100*u)
+		}
+	}
+	return fmt.Sprintf("done: %d completed, %d canceled / %d requests  |  wait median %s, p90 %s  |  fleet utilization %s  |  outputs in %s",
+		s.Completed, s.Canceled, s.Total, orDash(s.MedianWait, "s"), orDash(s.P90Wait, "s"), utilization, s.OutputDirectory)
 }
