@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -70,6 +71,9 @@ type dashboardResponse struct {
 		RidepoolType string `json:"ridepool_type"`
 		Count        int    `json:"count"`
 	} `json:"ridepool_types"`
+	Requests struct {
+		Total, Completed, Canceled int
+	} `json:"requests"`
 }
 
 func (d dashboardResponse) metric(t *testing.T, name string) string {
@@ -103,6 +107,7 @@ func TestDashboardForSingleTrip(t *testing.T) {
 	assertEquals(t, dashboard.metric(t, "wait_seconds_median"), "0")
 	assertEquals(t, dashboard.metric(t, "completion_rate"), "1")
 	assertEquals(t, dashboard.metric(t, "cancel_after_assignment_share"), "n/a") // no canceled trips
+	assertEquals(t, fmt.Sprint(dashboard.Requests), "{1 1 0}")                   // headline counts
 }
 
 // Case 4 through the dashboard.

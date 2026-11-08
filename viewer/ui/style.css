@@ -47,3 +47,10 @@ tr.highlight { background: #fff7d6; }
 .muted { color: #667; font-size: .85rem; }
 input.invalid { outline: 2px solid #c62828; }
 #tz-label { margin-left: auto; font-size: .8rem; color: #cde; }
+.kpis { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.kpi { border: 1px solid #ddd; border-radius: 6px; padding: 8px 14px; min-width: 120px; }
+.kpi-value { font-size: 1.5em; font-weight: 600; }
+.kpi-value small { font-size: 0.6em; color: #666; font-weight: normal; }
+.kpi-label { color: #555; font-size: 0.9em; }
+.playback-legend { margin-bottom: 8px; font-size: 0.9em; color: #333; }
+.playback-legend img { vertical-align: middle; }

@@ -94,8 +94,8 @@ const isTimeField = f => f.endsWith("_at");
 // Human-readable labels for metric and field keys. The precise definition
 // stays linked (metrics) or in the tooltip (the raw key).
 const labelOverrides = {
-  on_trip_time_share: "On Trip", en_route_time_share: "En Route", idle_time_share: "Idle",
-  on_trip_distance_share: "On Trip", en_route_distance_share: "En Route", idle_distance_share: "Idle",
+  on_trip_time_share: "On Trip, share of time", en_route_time_share: "En Route, share of time", idle_time_share: "Idle, share of time",
+  on_trip_distance_share: "On Trip, share of distance", en_route_distance_share: "En Route, share of distance", idle_distance_share: "Idle, share of distance",
   deadhead_distance_share: "Deadhead Distance Share", shared_trip_rate: "Shared Trip Rate (Match Rate)",
   rider_meters_per_supply_meter: "Rider Meters per Supply Meter", rider_meters_driven_per_supply_meter: "Rider Meters Driven per Supply Meter",
   requests_served_per_supply_hour: "Requests Served per Supply Hour", request_id: "Request", supply_id: "Car",
@@ -153,11 +153,29 @@ function histogramHTML(buckets, otherBuckets) {
   return `<div class="histogram">${bars(buckets, "")}${otherBuckets ? bars(otherBuckets, "b") : ""}</div>`;
 }
 
+// A metric value formatted by its kind: shares and rates as percents,
+// seconds and meters as whole units, other ratios to two decimals.
+function metricValue(name, v) {
+  if (v === null || v === undefined) return "n/a";
+  const whole = n => Math.round(n).toLocaleString("en-US");
+  if (/_(share|rate)(_|$)/.test(name)) return `${(100 * v).toFixed(1)}%`;
+  const stat = "(_(mean|median|p90|max))?$";
+  if (new RegExp("_seconds" + stat).test(name)) return `${whole(v)} s`;
+  if (new RegExp("_meters" + stat).test(name)) return `${whole(v)} m`;
+  if (Number.isInteger(v)) return whole(v);
+  return v.toFixed(2);
+}
 function metricTable(metrics) {
-  return `<table><tr><th>Metric</th><th>Value</th></tr>${metrics.map(m => {
+  const row = m => {
     const alert = m.name === "plan_rejected_count" && m.value > 0 ? " alert" : "";
-    return `<tr><td><a href="${m.definition_url}" target="_blank" title="${escapeHTML(m.name)}: see definition">${escapeHTML(label(m.name))}</a></td><td class="number${alert}">${fmt(m.value)}</td></tr>`;
-  }).join("")}</table>`;
+    return `<tr><td><a href="${m.definition_url}" target="_blank" title="${escapeHTML(m.name)}: see definition">${escapeHTML(label(m.name))}</a></td><td class="number${alert}" title="${escapeHTML(String(m.value ?? ""))}">${metricValue(m.name, m.value)}</td></tr>`;
+  };
+  // Utilization mixes time and distance shares; give each its own heading.
+  const parts = [["Share of time", x => x.name.endsWith("_time_share")], ["Share of distance", x => x.name.endsWith("_distance_share")]];
+  if (metrics.some(parts[0][1])) {
+    return parts.map(([title, test]) => `<h3>${title}</h3><table><tr><th>Metric</th><th>Value</th></tr>${metrics.filter(test).map(row).join("")}</table>`).join("");
+  }
+  return `<table><tr><th>Metric</th><th>Value</th></tr>${metrics.map(row).join("")}</table>`;
 }
 
 // ---------- Icons ----------
@@ -345,10 +363,20 @@ async function dashboardView() {
   const m = Object.fromEntries(d.metrics.map(x => [x.name, x.value]));
   const groups = [...new Set(d.metrics.map(x => x.group))];
   const lastPoint = d.timeline[d.timeline.length - 1];
+  const kpi = (title, value, hint) => `<div class="kpi" title="${escapeHTML(hint)}"><div class="kpi-value">${value}</div><div class="kpi-label">${title}</div></div>`;
+  const req = d.requests || { total: 0, completed: 0, canceled: 0 };
+  const pct = (n, total) => total ? ` <small>${(100 * n / total).toFixed(1)}%</small>` : "";
   app.innerHTML = `<h1>Dashboard</h1>
+    <div class="kpis">
+      ${kpi("Completed", `${req.completed.toLocaleString("en-US")}${pct(req.completed, req.total)}`, `Completed of ${req.total} requests`)}
+      ${kpi("Canceled", `${req.canceled.toLocaleString("en-US")}${pct(req.canceled, req.total)}`, `Canceled of ${req.total} requests`)}
+      ${kpi("Median wait", metricValue("wait_seconds_median", m.wait_seconds_median), "Median request-to-pickup time of picked-up riders")}
+      ${kpi("P90 wait", metricValue("wait_seconds_p90", m.wait_seconds_p90), "90th percentile request-to-pickup time")}
+      ${kpi("Fleet utilization", metricValue("on_trip_time_share", m.on_trip_time_share), "Share of online car time with a rider aboard")}
+    </div>
     <div class="pies">
-      ${pieHTML("Supply time", [["on_trip_time_share", stateColors.on_trip], ["en_route_time_share", stateColors.en_route], ["idle_time_share", stateColors.idle]].map(([key, color]) => ({ key, color, value: m[key] })))}
-      ${pieHTML("Supply distance", [["on_trip_distance_share", stateColors.on_trip], ["en_route_distance_share", stateColors.en_route], ["idle_distance_share", stateColors.idle]].map(([key, color]) => ({ key, color, value: m[key] })))}
+      ${pieHTML("Supply time share", [["on_trip_time_share", stateColors.on_trip], ["en_route_time_share", stateColors.en_route], ["idle_time_share", stateColors.idle]].map(([key, color]) => ({ key, color, value: m[key] })))}
+      ${pieHTML("Supply distance share", [["on_trip_distance_share", stateColors.on_trip], ["en_route_distance_share", stateColors.en_route], ["idle_distance_share", stateColors.idle]].map(([key, color]) => ({ key, color, value: m[key] })))}
     </div>
     <div class="grid">${groups.map(g => `<section><h2>${escapeHTML(label(g))}</h2>${metricTable(d.metrics.filter(x => x.group === g))}</section>`).join("")}</div>
     <h2>Distributions</h2><div class="grid">${Object.entries(d.distributions).map(([name, buckets]) =>
@@ -512,6 +540,29 @@ async function compareTripView(id) {
 
 // ---------- Playback ----------
 let playbackTimer = null;
+const playbackStates = ["idle", "en_route", "on_trip", "repositioning", "going_offline"];
+const playbackHints = {
+  waiting: "Requests not yet picked up: open, assigned, or with a car on the way",
+  riding: "Riders aboard a car. A pooled car carries several, and a going-offline car may still carry one, so this can exceed cars on trip",
+  idle: "Online with no plan", en_route: "Driving to a pickup with nobody aboard",
+  on_trip: "At least one rider aboard (dark green: two or more)", repositioning: "Empty, driving to a spot its driver chose",
+  going_offline: "Finishing its plan before going offline at the end of its shift",
+};
+function playbackLegend() {
+  const icon = svg => `<img alt="" src="${svgURL(svg)}" height="18">`;
+  return playbackStates.map(s => `<span title="${escapeHTML(playbackHints[s])}"><span class="swatch" style="background:${stateColors[s]}"></span>${escapeHTML(label(s))}</span>`).join(" ") +
+    ` <span title="${escapeHTML(playbackHints.on_trip)}"><span class="swatch" style="background:${carColor("on_trip", 2)}"></span>Pooled</span>` +
+    ` · <span title="A waiting rider's pickup point">${icon(icons.origin())} Pickup</span> <span title="Where a rider aboard is going">${icon(icons.destination())} Drop-off</span>`;
+}
+// Fit the map to where most riders are: the 5th to 95th percentile of all
+// pickup and drop-off points, so a few far-out trips don't zoom it out.
+function fitActivity(map, data) {
+  const points = data.requests.flatMap(r => [r.origin, r.destination]);
+  if (points.length === 0) { fit(map); return; }
+  const q = (values, f) => { const v = [...values].sort((a, b) => a - b); return v[Math.min(v.length - 1, Math.floor(f * v.length))]; };
+  const lats = points.map(p => p.lat), lngs = points.map(p => p.lng);
+  map.fitBounds(new google.maps.LatLngBounds({ lat: q(lats, 0.05), lng: q(lngs, 0.05) }, { lat: q(lats, 0.95), lng: q(lngs, 0.95) }));
+}
 async function playbackView(query) {
   const runKey = query.get("run") === "b" && config.compare_enabled ? "b" : "a";
   const first = await api(`/api/playback?run=${runKey}`);
@@ -530,6 +581,7 @@ async function playbackView(query) {
       ${config.compare_enabled ? `<label>Run <select id="pb-run"><option value="a">A</option><option value="b">B</option></select></label>` : ""}
     </div>
     <div id="pb-counters" class="playback-counters"></div>
+    <div class="playback-legend">${playbackLegend()}</div>
     <div id="playback-map" class="map tall"></div>`;
   if (config.compare_enabled) { const sel = document.getElementById("pb-run"); sel.value = runKey; sel.onchange = () => navigate(`/playback?run=${sel.value}&at=${Math.round(now)}&speed=${speed}`); }
   const map = await makeMap(document.getElementById("playback-map"));
@@ -552,14 +604,16 @@ async function playbackView(query) {
     fetchWindow(windowStart(now) + windowSeconds); // prefetch
     for (const key of [...windows.keys()]) if (key < windowStart(now) - windowSeconds) windows.delete(key);
     if (!data) return;
-    const byState = {}, liveCars = new Set(), liveRequests = new Set();
+    // Cars and requests are read at one instant with the same half-open
+    // [start, end) rule. At the very end, read just before it, so a dropoff
+    // that ends the run shows as the ride in progress on both sides.
+    const at = now >= end ? end - 0.001 : now;
+    const byState = Object.fromEntries(playbackStates.map(s => [s, 0])), liveCars = new Set(), liveRequests = new Set();
     let open = 0, active = 0;
     for (const car of data.cars) {
-      // At a boundary prefer the segment starting now (e.g. a pickup at T+0), so
-      // the car's state matches the request icons; the last segment holds at its end.
-      const seg = car.segments.find(s => s.start_at <= now && now < s.end_at) || car.segments.find(s => s.start_at <= now && now <= s.end_at);
+      const seg = car.segments.find(s => s.start_at <= at && at < s.end_at) || (now >= end ? null : car.segments.find(s => s.start_at <= now && now <= s.end_at));
       if (!seg) continue;
-      const f = seg.end_at > seg.start_at ? (now - seg.start_at) / (seg.end_at - seg.start_at) : 0;
+      const f = seg.end_at > seg.start_at ? Math.min(1, (now - seg.start_at) / (seg.end_at - seg.start_at)) : 0;
       const [p, a, b] = alongPath(seg.path || [seg.from, seg.to], f);
       const h = heading(a, b);
       if (h !== null) headings.set(car.supply_id, h);
@@ -571,13 +625,13 @@ async function playbackView(query) {
       if (!map) continue;
       const existing = cars.get(car.supply_id);
       if (existing) { moveIcon(existing, p, color, rotation); existing.__info = info; }
-      else cars.set(car.supply_id, addIcon(map, p, "car", { color, rotation, title: car.supply_id, info, extend: !fitted }));
+      else cars.set(car.supply_id, addIcon(map, p, "car", { color, rotation, title: car.supply_id, info, extend: false }));
     }
     for (const r of data.requests) {
       const until = r.pickup_at ?? r.canceled_at ?? end;
       let kind = null;
-      if (r.requested_at <= now && now < until) { kind = "origin"; open++; }
-      else if (r.pickup_at !== undefined && r.pickup_at <= now && now < (r.dropoff_at ?? end)) { kind = "destination"; active++; }
+      if (r.requested_at <= at && at < until) { kind = "origin"; open++; }
+      else if (r.pickup_at !== undefined && r.pickup_at <= at && at < (r.dropoff_at ?? end)) { kind = "destination"; active++; }
       if (!kind) continue;
       const key = `${r.request_id}:${kind}`;
       liveRequests.add(key);
@@ -585,17 +639,19 @@ async function playbackView(query) {
         const info = `<div class="info"><strong>${tripLink(r.request_id)}</strong> (${escapeHTML(r.status)})<br>Requested ${offset(r.requested_at)}
           ${r.pickup_at !== undefined ? `<br>Pickup ${offset(r.pickup_at)}` : ""}${r.dropoff_at !== undefined ? `<br>Dropoff ${offset(r.dropoff_at)}` : ""}
           ${r.canceled_at !== undefined ? `<br>Canceled ${offset(r.canceled_at)}` : ""}${r.supply_id ? `<br>Car ${supplyLink(r.supply_id)}` : ""}</div>`;
-        requestMarkers.set(key, addIcon(map, kind === "origin" ? r.origin : r.destination, kind, { title: r.request_id, info, extend: !fitted }));
+        requestMarkers.set(key, addIcon(map, kind === "origin" ? r.origin : r.destination, kind, { title: r.request_id, info, extend: false }));
       }
     }
     for (const [id, m] of cars) if (!liveCars.has(id)) { removeIcon(m); cars.delete(id); }
     for (const [key, m] of requestMarkers) if (!liveRequests.has(key)) { removeIcon(m); requestMarkers.delete(key); }
-    if (map && !fitted) { fit(map); fitted = true; }
+    if (map && !fitted) { fitActivity(map, await api(`/api/playback?run=${runKey}&from=${start}&to=${end}`)); fitted = true; }
     document.getElementById("pb-time").innerHTML = offset(t);
     document.getElementById("pb-slider").value = t;
     document.getElementById("pb-slider").title = timeText(t);
-    document.getElementById("pb-counters").innerHTML = `Open requests: ${open} · Active trips: ${active} · ` +
-      Object.entries(byState).map(([s, n]) => `<span class="swatch" style="background:${stateColors[s]}"></span>${escapeHTML(label(s))}: ${n}`).join(" · ");
+    const counter = (text, hint) => `<span title="${escapeHTML(hint)}">${text}</span>`;
+    document.getElementById("pb-counters").innerHTML =
+      `Riders: ${counter(`waiting ${open}`, playbackHints.waiting)} · ${counter(`riding ${active}`, playbackHints.riding)}` +
+      ` &nbsp;|&nbsp; Cars: ` + playbackStates.map(s => counter(`<span class="swatch" style="background:${stateColors[s]}"></span>${escapeHTML(label(s))} ${byState[s]}`, playbackHints[s])).join(" · ");
   }
   function syncURL() { history.replaceState(null, "", `/playback?${runKey === "b" ? "run=b&" : ""}at=${Math.round(now)}&speed=${speed}`); }
   function setPlaying(on) {
