@@ -2,7 +2,7 @@
 
 A deterministic, event-driven simulator for testing ride-hailing and robotaxi fleet strategies before they reach real riders. You give it ride requests, driver shifts and a settings file. It replays them second by second: your matcher assigns cars, the router drives them, and the simulator logs every pickup, dropoff, cancellation and GPS-like position. Identical inputs give byte-identical outputs, so you can run two strategies on the same supply and demand and know any difference comes from the strategy. A built-in viewer lets you replay and compare the runs on a map.
 
-![Viewer playback of the austin_weekday_100 benchmark with straight-line routing](docs/images/playback_austin_100.gif)
+![Viewer playback of the austin_weekday_100 benchmark with OSRM road routing](docs/images/playback_austin_100.gif)
 
 ## Why use it
 
