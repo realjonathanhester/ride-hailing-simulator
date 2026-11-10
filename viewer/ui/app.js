@@ -203,11 +203,18 @@ const icons = {
 const iconAnchors = { origin: [14, 34], destination: [6, 34], car: [11, 17] };
 const svgURL = svg => "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
 function carColor(state, riders) { return state === "on_trip" && riders >= 2 ? "#17602f" : stateColors[state] || "#444"; }
-// heading in degrees clockwise from north, in lat/lng space corrected for latitude.
+// Equirectangular meters, used to ignore tiny polyline jogs when pointing the car.
+function planarMeters(a, b) {
+  const metersPerDegree = 111319.49;
+  const x = (b.lng - a.lng) * Math.cos((a.lat + b.lat) / 2 * Math.PI / 180) * metersPerDegree;
+  const y = (b.lat - a.lat) * metersPerDegree;
+  return Math.hypot(x, y);
+}
+// Pieces shorter than this (encoded-polyline noise, mid-block jogs) are not a reliable heading.
+const minHeadingMeters = 8;
 // The point at fraction f of a path's length, and the piece it lies on.
 function alongPath(points, f) {
-  const len = (a, b) => Math.hypot((b.lng - a.lng) * Math.cos(a.lat * Math.PI / 180), b.lat - a.lat);
-  const lengths = points.slice(1).map((q, i) => len(points[i], q));
+  const lengths = points.slice(1).map((q, i) => planarMeters(points[i], q));
   let target = f * lengths.reduce((n, x) => n + x, 0);
   for (let i = 0; i < lengths.length; i++) {
     const a = points[i], b = points[i + 1];
@@ -220,10 +227,48 @@ function alongPath(points, f) {
   const a = points[0], b = points[points.length - 1];
   return [{ lat: a.lat + (b.lat - a.lat) * f, lng: a.lng + (b.lng - a.lng) * f }, a, b];
 }
+// Heading in degrees clockwise from north. Null if from and to are the same point.
 function heading(from, to) {
+  if (!from || !to || planarMeters(from, to) < 1e-3) return null;
   const dx = (to.lng - from.lng) * Math.cos(from.lat * Math.PI / 180), dy = to.lat - from.lat;
-  if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) return null;
   return Math.atan2(dx, dy) * 180 / Math.PI;
+}
+// Bearing of the route polyline piece the car is on at fraction f. Short jogs are
+// skipped by walking forward (then back) along the path until the span is long
+// enough to be a real road segment. Null if the car is stationary; the caller
+// keeps the previous heading.
+function pathHeading(points, f) {
+  if (!points || points.length < 2) return null;
+  const lengths = [];
+  let total = 0;
+  for (let i = 0; i < points.length - 1; i++) {
+    const m = planarMeters(points[i], points[i + 1]);
+    lengths.push(m);
+    total += m;
+  }
+  if (total < minHeadingMeters) return null;
+  let remain = Math.max(0, Math.min(1, f)) * total, i = 0;
+  for (; i < lengths.length; i++) {
+    if (lengths[i] > 0 && (remain <= lengths[i] || i === lengths.length - 1)) break;
+    remain -= lengths[i];
+  }
+  const here = points[i], next = points[i + 1];
+  const g = lengths[i] > 0 ? Math.min(1, remain / lengths[i]) : 0;
+  const at = { lat: here.lat + (next.lat - here.lat) * g, lng: here.lng + (next.lng - here.lng) * g };
+  if (lengths[i] >= minHeadingMeters) return heading(here, next);
+  let acc = lengths[i] * (1 - g), end = next;
+  for (let j = i + 1; j < lengths.length && acc < minHeadingMeters; j++) {
+    acc += lengths[j];
+    end = points[j + 1];
+  }
+  if (acc >= minHeadingMeters) return heading(at, end);
+  acc = lengths[i] * g;
+  let start = here;
+  for (let j = i - 1; j >= 0 && acc < minHeadingMeters; j--) {
+    acc += lengths[j];
+    start = points[j];
+  }
+  return acc >= minHeadingMeters ? heading(start, at) : null;
 }
 function iconElement(kind, { color, rotation = 0 } = {}) {
   const div = document.createElement("div");
@@ -614,8 +659,9 @@ async function playbackView(query) {
       const seg = car.segments.find(s => s.start_at <= at && at < s.end_at) || (now >= end ? null : car.segments.find(s => s.start_at <= now && now <= s.end_at));
       if (!seg) continue;
       const f = seg.end_at > seg.start_at ? Math.min(1, (now - seg.start_at) / (seg.end_at - seg.start_at)) : 0;
-      const [p, a, b] = alongPath(seg.path || [seg.from, seg.to], f);
-      const h = heading(a, b);
+      const path = seg.path || [seg.from, seg.to];
+      const [p] = alongPath(path, f);
+      const h = pathHeading(path, f);
       if (h !== null) headings.set(car.supply_id, h);
       const rotation = headings.get(car.supply_id) || 0, color = carColor(seg.state, seg.riders_aboard);
       byState[seg.state] = (byState[seg.state] || 0) + 1;
