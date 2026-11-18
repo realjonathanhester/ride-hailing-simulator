@@ -111,7 +111,10 @@ type car struct {
 
 	lastRowLocation model.Location
 	path            []model.Location
-	actions         []model.Stop
+	// pathStops marks the indexes in path where the car reached a stop, so
+	// thinning full_polyline keeps them.
+	pathStops map[int]bool
+	actions   []model.Stop
 
 	accountedAt  int64
 	classSeconds [3]int64
@@ -451,6 +454,7 @@ func (s *Simulator) apply(e *event) {
 		c.baseLocation, c.baseAt, c.accountedAt = c.input.OnlineLocation, s.now, s.now
 		c.lastRowLocation = c.baseLocation
 		c.path = []model.Location{c.baseLocation}
+		c.pathStops = map[int]bool{}
 		s.log(c, "online", "", nil)
 		s.match(model.TriggerSupplyOnline)
 	case eventSupplyOffline:

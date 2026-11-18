@@ -64,3 +64,46 @@ func Decode(encoded string) []model.Location {
 	}
 	return points
 }
+
+// earthRadiusMeters is the mean Earth radius used by HaversineMeters.
+const earthRadiusMeters = 6371008.8
+
+// HaversineMeters is the great-circle distance between a and b in meters.
+func HaversineMeters(a, b model.Location) float64 {
+	const radians = math.Pi / 180
+	dLat := (b.Lat - a.Lat) * radians
+	dLng := (b.Lng - a.Lng) * radians
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(a.Lat*radians)*math.Cos(b.Lat*radians)*math.Sin(dLng/2)*math.Sin(dLng/2)
+	return 2 * earthRadiusMeters * math.Asin(math.Sqrt(math.Min(1, h)))
+}
+
+// Thin drops points that are less than minMeters (haversine) from the last
+// kept point. The first and last points are always kept, and so is every
+// point for which keep(i) is true (keep may be nil). When a point that must
+// be kept lands within minMeters of the previous kept point, that previous
+// point is dropped instead unless it must be kept too, so consecutive points
+// are at least minMeters apart except between two points that must be kept.
+func Thin(points []model.Location, minMeters float64, keep func(i int) bool) []model.Location {
+	if len(points) <= 2 {
+		return points
+	}
+	thinned := []model.Location{points[0]}
+	pinned := []bool{true}
+	for i := 1; i < len(points); i++ {
+		required := i == len(points)-1 || (keep != nil && keep(i))
+		last := len(thinned) - 1
+		if HaversineMeters(thinned[last], points[i]) >= minMeters {
+			thinned, pinned = append(thinned, points[i]), append(pinned, required)
+			continue
+		}
+		if !required {
+			continue
+		}
+		for last > 0 && !pinned[last] && HaversineMeters(thinned[last], points[i]) < minMeters {
+			thinned, pinned = thinned[:last], pinned[:last]
+			last--
+		}
+		thinned, pinned = append(thinned, points[i]), append(pinned, true)
+	}
+	return thinned
+}
