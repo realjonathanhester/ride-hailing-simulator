@@ -372,13 +372,23 @@ function addIcon(map, point, kind, { color, rotation = 0, info, title = "", exte
     marker.__kind = "advanced";
   } else {
     marker = new google.maps.Marker({ map, position, title, icon: iconFor(kind, color, rotation) });
+    marker.__icon = iconKey(color, rotation);
   }
   marker.__info = info;
   bindInfo(map, marker, info);
   return marker;
 }
+// A classic marker loads each new icon image asynchronously, and a setIcon that
+// arrives before the previous image has loaded replaces it. Playback moves cars
+// every animation frame, so setting a fresh, slightly different rotation each
+// frame kept the drawn icon frozen at an old heading while the car drove on.
+// Rotations are rounded to iconStepDegrees and the icon is set only when that
+// rounded rotation or the color changes.
+const iconStepDegrees = 5;
+const roundRotation = rotation => ((Math.round(rotation / iconStepDegrees) * iconStepDegrees) % 360 + 360) % 360;
+const iconKey = (color, rotation) => `${color} ${roundRotation(rotation)}`;
 function iconFor(kind, color, rotation) {
-  if (kind === "car") return { url: svgURL(rotatedCarSVG(color, rotation)), scaledSize: new google.maps.Size(34, 34), anchor: new google.maps.Point(17, 17) };
+  if (kind === "car") return { url: svgURL(rotatedCarSVG(color, roundRotation(rotation))), scaledSize: new google.maps.Size(34, 34), anchor: new google.maps.Point(17, 17) };
   const [x, y] = iconAnchors[kind];
   return { url: svgURL(icons[kind]()), scaledSize: new google.maps.Size(28, 36), anchor: new google.maps.Point(x, y) };
 }
@@ -389,7 +399,8 @@ function moveIcon(marker, point, color, rotation) {
     marker.content.firstElementChild.style.transform = `rotate(${rotation}deg)`;
   } else {
     marker.setPosition(point);
-    marker.setIcon(iconFor("car", color, rotation));
+    const key = iconKey(color, rotation);
+    if (marker.__icon !== key) { marker.__icon = key; marker.setIcon(iconFor("car", color, rotation)); }
   }
 }
 function removeIcon(marker) { if (marker.__kind === "advanced") marker.map = null; else marker.setMap(null); }
