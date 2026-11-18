@@ -69,6 +69,21 @@ type planCell struct {
 	EtaAt     int64          `json:"eta_at"`
 }
 
+// outputPolylineMinSpacingMeters is the smallest distance between
+// consecutive points written to the encoded polyline output fields
+// (driven_polyline, planned_polyline and full_polyline). Thinning applies to
+// the written output only; cars still move along the full routed geometry.
+const outputPolylineMinSpacingMeters = 20.0
+
+// stopActions are the supply event actions whose row ends at a stop.
+var stopActions = map[string]bool{"arrived_pickup": true, "arrived_dropoff": true, "pickup": true, "dropoff": true, "reposition_arrived": true}
+
+// thinForOutput thins points for an output polyline field, keeping the
+// endpoints and every point at one of stops.
+func thinForOutput(points []model.Location, stops map[model.Location]bool) []model.Location {
+	return polyline.Thin(points, outputPolylineMinSpacingMeters, func(i int) bool { return stops[points[i]] })
+}
+
 func formatCoordinate(v float64) string { return strconv.FormatFloat(v, 'f', 6, 64) }
 func formatRatio(v float64) string      { return strconv.FormatFloat(v, 'f', 6, 64) }
 func formatInt(v int64) string          { return strconv.FormatInt(v, 10) }
@@ -91,14 +106,24 @@ func (s *Simulator) log(c *car, action, requestID string, planned []model.Locati
 		}
 	}
 	if len(points) > 1 {
-		driven = polyline.Encode(points)
+		driven = polyline.Encode(thinForOutput(points, nil))
 		c.path = append(c.path, points[1:]...)
+	}
+	if stopActions[action] {
+		c.pathStops[len(c.path)-1] = true
 	}
 	c.trail = nil
 	c.lastRowLocation = location
 	plannedCell, planJSON := "", ""
 	if planned != nil {
-		plannedCell = polyline.Encode(planned)
+		stops := map[model.Location]bool{}
+		for _, stop := range c.stops {
+			stops[stop.location] = true
+		}
+		if action == "reposition_started" {
+			stops[c.repositionTarget] = true
+		}
+		plannedCell = polyline.Encode(thinForOutput(planned, stops))
 	}
 	if action == "plan_updated" {
 		cells := []planCell{}
@@ -204,7 +229,7 @@ func (s *Simulator) result() *Result {
 		out.SupplySummary = append(out.SupplySummary, []string{id, formatInt(c.input.OnlineAt), formatOptional(c.offlineAt),
 			formatInt(c.classSeconds[classIdle]), formatInt(c.classSeconds[classEnRoute]), formatInt(c.classSeconds[classOnTrip]),
 			formatInt(c.classMeters[classIdle]), formatInt(c.classMeters[classEnRoute]), formatInt(c.classMeters[classOnTrip]),
-			strconv.Itoa(c.served), utilization, deadhead, polyline.Encode(c.path)})
+			strconv.Itoa(c.served), utilization, deadhead, polyline.Encode(polyline.Thin(c.path, outputPolylineMinSpacingMeters, func(i int) bool { return c.pathStops[i] }))})
 	}
 	median, p90, meanDetour, fleetUtilization := "", "", "", ""
 	if len(waits) > 0 {
