@@ -38,6 +38,7 @@ tr.highlight { background: #fff7d6; }
 .playback-controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 .playback-controls #pb-slider { flex: 1 1 300px; }
 .playback-controls form { display: inline-flex; gap: 4px; }
+.playback-times { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; margin-bottom: 8px; }
 .pb-speed.active { font-weight: bold; outline: 2px solid #1e66d0; }
 .playback-counters { margin-bottom: 8px; }
 .map.tall { height: 600px; }

@@ -649,10 +649,12 @@ async function playbackView(query) {
       <button id="pb-play">Play</button>
       ${[1, 10, 60, 300].map(s => `<button class="pb-speed" data-speed="${s}">${s}x</button>`).join("")}
       <input id="pb-slider" type="range" min="${start}" max="${end}" step="1" value="${now}">
-      <span id="pb-time"></span>
-      <span id="pb-range" class="muted">${escapeHTML(localCompact(start))} – ${escapeHTML(localFull(end))}</span>
       <form id="pb-jump"><input id="pb-jump-input" placeholder="T+600, 17:30 or 2026-01-07 17:30" title="A T+ offset, an epoch, or a local time (HH:MM[:SS], optionally with YYYY-MM-DD) in ${escapeHTML(displayTimezone())}" size="26"><button>Go</button></form>
       ${config.compare_enabled ? `<label>Run <select id="pb-run"><option value="a">A</option><option value="b">B</option></select></label>` : ""}
+    </div>
+    <div class="playback-times">
+      <span id="pb-time"></span>
+      <span id="pb-range" class="muted">${escapeHTML(localCompact(start))} – ${escapeHTML(localFull(end))}</span>
     </div>
     <div id="pb-counters" class="playback-counters"></div>
     <div class="playback-legend">${playbackLegend()}</div>
